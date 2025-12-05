@@ -1,1 +1,0 @@
-- the product name is artficicery.io, not Artificery or "The Artificery".
