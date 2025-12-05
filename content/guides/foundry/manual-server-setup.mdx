@@ -1,0 +1,329 @@
+---
+title: "Manual Foundry VTT Server Setup"
+description: "Step-by-step guide to setting up Foundry VTT on a Linux server from scratch"
+category: "foundry"
+date: "2024-12-05"
+---
+
+This guide walks you through manually setting up a Foundry VTT server on a Linux VPS. This is the same process automated by the [Foundry VTT Cloud Installer](/).
+
+## Prerequisites
+
+Before starting, you'll need:
+
+- A Linux VPS (Ubuntu 24.04 recommended) with at least 1GB RAM
+- A domain name pointed to your server's IP address
+- Your Foundry VTT timed download URL (from your Foundry account)
+- Basic familiarity with the command line
+
+<Callout type="info">
+  If you'd prefer an automated setup, check out our [Foundry VTT Cloud Installer](/) which handles all of this for you.
+</Callout>
+
+## Step 1: Connect to Your Server
+
+SSH into your server as root:
+
+```bash
+ssh root@your-server-ip
+```
+
+## Step 2: Update the System
+
+Update package lists and upgrade existing packages:
+
+```bash
+apt-get update && apt-get upgrade -y
+```
+
+## Step 3: Install Required Packages
+
+Install essential utilities:
+
+```bash
+apt-get install -y curl wget unzip ufw fail2ban jq unattended-upgrades apt-listchanges
+```
+
+## Step 4: Configure the Firewall
+
+Set up UFW to only allow SSH and web traffic:
+
+```bash
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow http
+ufw allow https
+ufw --force enable
+```
+
+## Step 5: Configure Fail2ban
+
+Protect against SSH brute-force attacks:
+
+```bash
+cat > /etc/fail2ban/jail.local << 'EOF'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+maxretry = 3
+EOF
+
+systemctl enable fail2ban
+systemctl start fail2ban
+```
+
+## Step 6: Disable SSH Password Authentication
+
+<Callout type="warning">
+  Make sure you have SSH key access before doing this, or you'll lock yourself out!
+</Callout>
+
+```bash
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart ssh
+```
+
+## Step 7: Configure Automatic Security Updates
+
+```bash
+cat > /etc/apt/apt.conf.d/50unattended-upgrades << 'EOF'
+Unattended-Upgrade::Allowed-Origins {
+  "${distro_id}:${distro_codename}";
+  "${distro_id}:${distro_codename}-security";
+  "${distro_id}ESMApps:${distro_codename}-apps-security";
+  "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+EOF
+
+systemctl enable unattended-upgrades
+systemctl start unattended-upgrades
+```
+
+## Step 8: Create Swap Space
+
+Prevents out-of-memory crashes with module-heavy worlds:
+
+```bash
+fallocate -l 2G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+swapon -a
+```
+
+## Step 9: Install Node.js 22
+
+```bash
+apt-get remove -y nodejs npm 2>/dev/null || true
+
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+  | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+  | tee /etc/apt/sources.list.d/nodesource.list
+
+apt-get update
+apt-get install -y nodejs
+```
+
+Verify the installation:
+
+```bash
+node -v
+npm -v
+```
+
+## Step 10: Install PM2
+
+PM2 is a process manager that keeps Foundry running and restarts it on crashes:
+
+```bash
+npm install -g pm2
+```
+
+## Step 11: Install Caddy
+
+Caddy is a modern web server with automatic HTTPS:
+
+```bash
+curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" \
+  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" \
+  | tee /etc/apt/sources.list.d/caddy-stable.list
+
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
+systemctl stop caddy
+```
+
+## Step 12: Create Foundry User and Directories
+
+```bash
+useradd -m -s /bin/bash foundry
+mkdir -p /home/foundry/foundryvtt
+mkdir -p /home/foundry/foundrydata/Config
+mkdir -p /home/foundry/logs
+```
+
+## Step 13: Download Foundry VTT
+
+<Callout type="warning">
+  Get your timed download URL from the Foundry VTT website. Log in to your account, go to Purchased Licenses, and copy the Linux/NodeJS download link. The URL expires after a few hours.
+</Callout>
+
+```bash
+cd /home/foundry
+wget -q "YOUR_TIMED_DOWNLOAD_URL" -O foundry.zip
+unzip -q foundry.zip -d foundryvtt
+rm foundry.zip
+```
+
+## Step 14: Configure Foundry
+
+Create the options.json file. Replace `your-domain.com` with your actual domain:
+
+```bash
+cat > /home/foundry/foundrydata/Config/options.json << 'EOF'
+{
+  "hostname": "your-domain.com",
+  "routePrefix": null,
+  "sslCert": null,
+  "sslKey": null,
+  "port": 30000,
+  "proxyPort": 443,
+  "proxySSL": true
+}
+EOF
+```
+
+## Step 15: Create PM2 Ecosystem File
+
+<Callout type="info">
+  For Foundry v13+, use `main.js`. For v11/v12, use `resources/app/main.js` instead.
+</Callout>
+
+```bash
+cat > /home/foundry/ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: 'foundry',
+    script: 'main.js',
+    cwd: '/home/foundry/foundryvtt',
+    args: '--dataPath=/home/foundry/foundrydata',
+    interpreter: 'node',
+    env: { NODE_ENV: 'production' },
+    max_memory_restart: '1G',
+    error_file: '/home/foundry/logs/err.log',
+    out_file: '/home/foundry/logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+  }]
+};
+EOF
+```
+
+## Step 16: Set Permissions
+
+```bash
+chown -R foundry:foundry /home/foundry
+```
+
+## Step 17: Configure Caddy
+
+Replace `your-domain.com` with your actual domain:
+
+```bash
+cat > /etc/caddy/Caddyfile << 'EOF'
+your-domain.com {
+  reverse_proxy localhost:30000
+}
+EOF
+```
+
+## Step 18: Start Foundry with PM2
+
+```bash
+sudo -u foundry HOME=/home/foundry pm2 start /home/foundry/ecosystem.config.js
+sudo -u foundry HOME=/home/foundry pm2 save
+
+env PATH=$PATH:/usr/bin HOME=/home/foundry \
+  pm2 startup systemd -u foundry --hp /home/foundry --service-name pm2-foundry
+
+systemctl daemon-reload
+systemctl enable pm2-foundry
+```
+
+## Step 19: Configure Log Rotation
+
+Install pm2-logrotate to prevent logs from filling up the disk:
+
+```bash
+sudo -u foundry HOME=/home/foundry pm2 install pm2-logrotate
+sudo -u foundry HOME=/home/foundry pm2 set pm2-logrotate:max_size 10M
+sudo -u foundry HOME=/home/foundry pm2 set pm2-logrotate:retain 7
+sudo -u foundry HOME=/home/foundry pm2 set pm2-logrotate:compress true
+sudo -u foundry HOME=/home/foundry pm2 set pm2-logrotate:rotateInterval '0 0 * * *'
+```
+
+This rotates logs daily, keeps 7 compressed backups, and limits each log file to 10MB.
+
+## Step 20: Start Caddy
+
+```bash
+systemctl enable caddy
+systemctl start caddy
+```
+
+<Callout type="success">
+  Your Foundry VTT server should now be running at `https://your-domain.com`! Caddy automatically obtains and renews SSL certificates.
+</Callout>
+
+## Useful Commands
+
+Check if Foundry is running:
+
+```bash
+sudo -u foundry pm2 status
+```
+
+View Foundry logs:
+
+```bash
+sudo -u foundry pm2 logs foundry
+```
+
+Restart Foundry:
+
+```bash
+sudo -u foundry pm2 restart foundry
+```
+
+## File Paths Reference
+
+| Path | Purpose |
+|------|---------|
+| `/home/foundry/foundryvtt/` | Foundry application files |
+| `/home/foundry/foundrydata/` | User data, worlds, modules |
+| `/home/foundry/foundrydata/Config/options.json` | Foundry configuration |
+| `/home/foundry/ecosystem.config.js` | PM2 process config |
+| `/home/foundry/logs/` | Application logs |
+| `/etc/caddy/Caddyfile` | Caddy reverse proxy config |
+
+## Next Steps
+
+- Access your Foundry instance and enter your license key
+- Configure your game settings
+- Set up regular backups of `/home/foundry/foundrydata`
+- Consider adding S3-compatible storage for assets (DigitalOcean Spaces, Backblaze B2, etc.)

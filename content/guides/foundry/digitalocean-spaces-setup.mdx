@@ -1,0 +1,254 @@
+---
+title: "DigitalOcean Spaces for Foundry VTT"
+description: "Set up DigitalOcean Spaces as asset storage for your Foundry VTT server"
+category: "foundry"
+date: "2024-12-05"
+---
+
+This guide walks you through configuring DigitalOcean Spaces as external asset storage for Foundry VTT. Using object storage offloads large files (maps, tokens, music) from your server and improves performance.
+
+## Prerequisites
+
+- A running Foundry VTT server (see [Manual Server Setup](/guides/foundry/manual-server-setup))
+- A DigitalOcean account
+- SSH access to your Foundry server
+
+## Why Use Object Storage?
+
+- **Save disk space** on your VPS
+- **Faster asset delivery** via CDN
+- **Easier backups** - worlds are small, assets are in the cloud
+- **Share assets** across multiple Foundry instances
+
+## Step 1: Create a Space
+
+1. Log in to [DigitalOcean](https://cloud.digitalocean.com)
+2. Go to **Spaces Object Storage** in the left sidebar
+3. Click **Create a Space**
+4. Choose a datacenter region close to your players:
+
+| Region | Location |
+|--------|----------|
+| nyc3 | New York |
+| sfo3 | San Francisco |
+| ams3 | Amsterdam |
+| fra1 | Frankfurt |
+| sgp1 | Singapore |
+| syd1 | Sydney |
+
+5. Choose **Restrict File Listing** (recommended for security)
+6. Enter a unique bucket name (e.g., `my-foundry-assets`)
+7. Click **Create a Space**
+
+<Callout type="info">
+  Bucket names must be globally unique across all DigitalOcean customers. If your name is taken, try adding a random suffix.
+</Callout>
+
+## Step 2: Create Access Keys
+
+1. Go to **API** in the left sidebar
+2. Scroll to **Spaces Keys**
+3. Click **Generate New Key**
+4. Give it a name like `foundry-server`
+5. Save both the **Access Key** and **Secret Key** - the secret is only shown once!
+
+<Callout type="warning">
+  Store your secret key securely. If you lose it, you'll need to create a new key pair.
+</Callout>
+
+## Step 3: Configure CORS
+
+CORS (Cross-Origin Resource Sharing) allows your Foundry server to load assets from the Space. You'll need the `s3cmd` tool or use the DigitalOcean API.
+
+### Option A: Using s3cmd
+
+Install s3cmd:
+
+```bash
+apt-get install -y s3cmd
+```
+
+Configure it:
+
+```bash
+s3cmd --configure
+```
+
+Enter your credentials when prompted:
+- Access Key: your Spaces access key
+- Secret Key: your Spaces secret key
+- Default Region: leave empty
+- S3 Endpoint: `{region}.digitaloceanspaces.com` (e.g., `nyc3.digitaloceanspaces.com`)
+- DNS-style bucket: `%(bucket)s.{region}.digitaloceanspaces.com`
+
+Create a CORS configuration file:
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>https://your-foundry-domain.com</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+Apply the CORS configuration:
+
+```bash
+s3cmd setcors cors.xml s3://your-bucket-name
+```
+
+### Option B: For Self-Hosted with Dynamic DNS
+
+If your Foundry server uses a dynamic DNS name that might change, you can use a wildcard origin:
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>*</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+<Callout type="warning">
+  Using `*` as the allowed origin is less secure but necessary for setups where the domain may change. Your assets will be accessible from any website. Only use this if your bucket contains non-sensitive game assets.
+</Callout>
+
+### Option C: Multiple Domains
+
+If you access Foundry from multiple domains (e.g., local network and public):
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>https://foundry.yourdomain.com</AllowedOrigin>
+    <AllowedOrigin>http://192.168.1.100:30000</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+## Step 4: Configure Foundry
+
+SSH into your Foundry server and create the `aws.json` configuration file:
+
+```bash
+cat > /home/foundry/foundrydata/Config/aws.json << 'EOF'
+{
+  "buckets": ["your-bucket-name"],
+  "region": "nyc3",
+  "endpoint": "https://nyc3.digitaloceanspaces.com",
+  "credentials": {
+    "accessKeyId": "YOUR_ACCESS_KEY",
+    "secretAccessKey": "YOUR_SECRET_KEY"
+  }
+}
+EOF
+```
+
+Replace:
+- `your-bucket-name` with your Space name
+- `nyc3` with your chosen region (both places)
+- `YOUR_ACCESS_KEY` and `YOUR_SECRET_KEY` with your credentials
+
+Set proper permissions:
+
+```bash
+chown foundry:foundry /home/foundry/foundrydata/Config/aws.json
+chmod 600 /home/foundry/foundrydata/Config/aws.json
+```
+
+## Step 5: Update Foundry Options
+
+Edit your existing `options.json` to add the `awsConfig` property:
+
+```bash
+nano /home/foundry/foundrydata/Config/options.json
+```
+
+Add this line inside the JSON object:
+
+```json
+"awsConfig": "aws.json"
+```
+
+Your options.json should look something like this (your other settings may vary):
+
+```json
+{
+  "hostname": "your-foundry-domain.com",
+  "port": 30000,
+  "proxyPort": 443,
+  "proxySSL": true,
+  "awsConfig": "aws.json"
+}
+```
+
+## Step 6: Restart Foundry
+
+```bash
+sudo -u foundry pm2 restart foundry
+```
+
+## Step 7: Verify the Setup
+
+1. Open Foundry VTT in your browser
+2. Go to **Settings** → **Configure Game Settings**
+3. You should see your S3 bucket listed under **Asset Storage**
+4. Try uploading an image - it should appear in your DigitalOcean Space
+
+## Spaces Endpoint Reference
+
+| Region | Endpoint |
+|--------|----------|
+| nyc3 | `https://nyc3.digitaloceanspaces.com` |
+| sfo3 | `https://sfo3.digitaloceanspaces.com` |
+| ams3 | `https://ams3.digitaloceanspaces.com` |
+| fra1 | `https://fra1.digitaloceanspaces.com` |
+| sgp1 | `https://sgp1.digitaloceanspaces.com` |
+| syd1 | `https://syd1.digitaloceanspaces.com` |
+
+## Troubleshooting
+
+### Assets not loading (CORS errors)
+
+Check browser console for CORS errors. Verify your CORS configuration:
+
+```bash
+s3cmd info s3://your-bucket-name
+```
+
+### "Access Denied" errors
+
+- Verify your access key and secret are correct in `aws.json`
+- Check the bucket name matches exactly
+- Ensure the region in `aws.json` matches your Space's region
+
+### Foundry doesn't show S3 option
+
+- Verify `aws.json` exists and has correct permissions
+- Check that `options.json` includes `"awsConfig": "aws.json"`
+- Restart Foundry after making changes
+
+<Callout type="success">
+  Your Foundry VTT server is now using DigitalOcean Spaces for asset storage!
+</Callout>

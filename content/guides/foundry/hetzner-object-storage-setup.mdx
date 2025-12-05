@@ -1,0 +1,290 @@
+---
+title: "Hetzner Object Storage for Foundry VTT"
+description: "Set up Hetzner Object Storage as asset storage for your Foundry VTT server"
+category: "foundry"
+date: "2024-12-05"
+---
+
+This guide walks you through configuring Hetzner Object Storage as external asset storage for Foundry VTT. Hetzner offers affordable S3-compatible storage that works seamlessly with Foundry.
+
+## Prerequisites
+
+- A running Foundry VTT server (see [Manual Server Setup](/guides/foundry/manual-server-setup))
+- A Hetzner Cloud account
+- SSH access to your Foundry server
+
+## Why Use Object Storage?
+
+- **Save disk space** on your VPS
+- **Cost effective** - Hetzner storage is very affordable
+- **Easier backups** - worlds are small, assets are in the cloud
+- **Share assets** across multiple Foundry instances
+
+## Step 1: Create a Bucket
+
+1. Log in to [Hetzner Cloud Console](https://console.hetzner.cloud)
+2. Select your project (or create a new one)
+3. Go to **Object Storage** in the left sidebar
+4. Click **Create Bucket**
+5. Choose a region:
+
+| Region | Location |
+|--------|----------|
+| fsn1 | Falkenstein, Germany |
+| nbg1 | Nuremberg, Germany |
+| hel1 | Helsinki, Finland |
+
+6. Enter a bucket name (e.g., `foundry-assets`)
+7. Click **Create Bucket**
+
+<Callout type="info">
+  Bucket names must be unique within your Hetzner project. Choose something descriptive like `foundry-assets` or `my-vtt-storage`.
+</Callout>
+
+## Step 2: Create Access Credentials
+
+1. In your project, go to **Security** → **API Tokens**
+2. Click **Generate API Token**
+3. Select **Read & Write** permissions
+4. Copy and save the token
+
+Now create S3 credentials:
+
+1. Go to **Object Storage** → **S3 Credentials**
+2. Click **Generate Credentials**
+3. Save both the **Access Key** and **Secret Key**
+
+<Callout type="warning">
+  Store your credentials securely. The secret key is only shown once during creation.
+</Callout>
+
+## Step 3: Configure CORS
+
+CORS (Cross-Origin Resource Sharing) allows your Foundry server to load assets from the bucket. You'll need to use a tool like `s3cmd` or `aws-cli`.
+
+### Install s3cmd
+
+```bash
+apt-get install -y s3cmd
+```
+
+### Configure s3cmd for Hetzner
+
+```bash
+s3cmd --configure
+```
+
+Enter the following when prompted:
+- Access Key: your Hetzner S3 access key
+- Secret Key: your Hetzner S3 secret key
+- Default Region: your bucket region (e.g., `fsn1`)
+- S3 Endpoint: `{region}.your-objectstorage.com` (e.g., `fsn1.your-objectstorage.com`)
+- DNS-style bucket: `%(bucket)s.{region}.your-objectstorage.com`
+
+### Option A: Single Domain CORS
+
+Create a CORS configuration file for your specific Foundry domain:
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>https://your-foundry-domain.com</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+Apply the CORS configuration:
+
+```bash
+s3cmd setcors cors.xml s3://your-bucket-name
+```
+
+### Option B: For Self-Hosted with Dynamic DNS
+
+If your Foundry server uses a dynamic DNS name or you access it from multiple networks:
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>*</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+<Callout type="warning">
+  Using `*` as the allowed origin means any website can load your assets. This is fine for game assets but don't store sensitive files in this bucket.
+</Callout>
+
+### Option C: Multiple Specific Origins
+
+For accessing Foundry from both local network and public internet:
+
+```bash
+cat > cors.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>https://foundry.yourdomain.com</AllowedOrigin>
+    <AllowedOrigin>http://192.168.1.100:30000</AllowedOrigin>
+    <AllowedOrigin>http://localhost:30000</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <MaxAgeSeconds>3600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+EOF
+```
+
+## Step 4: Configure Foundry
+
+SSH into your Foundry server and create the `aws.json` configuration file:
+
+```bash
+cat > /home/foundry/foundrydata/Config/aws.json << 'EOF'
+{
+  "buckets": ["your-bucket-name"],
+  "region": "fsn1",
+  "endpoint": "https://fsn1.your-objectstorage.com",
+  "credentials": {
+    "accessKeyId": "YOUR_ACCESS_KEY",
+    "secretAccessKey": "YOUR_SECRET_KEY"
+  }
+}
+EOF
+```
+
+Replace:
+- `your-bucket-name` with your bucket name
+- `fsn1` with your chosen region (both places)
+- `YOUR_ACCESS_KEY` and `YOUR_SECRET_KEY` with your S3 credentials
+
+Set proper permissions:
+
+```bash
+chown foundry:foundry /home/foundry/foundrydata/Config/aws.json
+chmod 600 /home/foundry/foundrydata/Config/aws.json
+```
+
+## Step 5: Update Foundry Options
+
+Edit your existing `options.json` to add the `awsConfig` property:
+
+```bash
+nano /home/foundry/foundrydata/Config/options.json
+```
+
+Add this line inside the JSON object:
+
+```json
+"awsConfig": "aws.json"
+```
+
+Your options.json should look something like this (your other settings may vary):
+
+```json
+{
+  "hostname": "your-foundry-domain.com",
+  "port": 30000,
+  "proxyPort": 443,
+  "proxySSL": true,
+  "awsConfig": "aws.json"
+}
+```
+
+## Step 6: Restart Foundry
+
+```bash
+sudo -u foundry pm2 restart foundry
+```
+
+## Step 7: Verify the Setup
+
+1. Open Foundry VTT in your browser
+2. Go to **Settings** → **Configure Game Settings**
+3. You should see your S3 bucket listed under **Asset Storage**
+4. Try uploading an image - it should appear in your Hetzner bucket
+
+## Hetzner Endpoint Reference
+
+| Region | Endpoint |
+|--------|----------|
+| fsn1 | `https://fsn1.your-objectstorage.com` |
+| nbg1 | `https://nbg1.your-objectstorage.com` |
+| hel1 | `https://hel1.your-objectstorage.com` |
+
+## Pricing
+
+Hetzner Object Storage is billed based on:
+- **Storage**: €0.00524/GB/month (~€5.24/TB)
+- **Egress**: €1.00/TB (first 1TB free)
+
+For most Foundry setups, costs are minimal - typically under €1/month.
+
+## Troubleshooting
+
+### Assets not loading (CORS errors)
+
+Check browser console for CORS errors. Verify your CORS configuration:
+
+```bash
+s3cmd info s3://your-bucket-name
+```
+
+Re-apply CORS if needed:
+
+```bash
+s3cmd setcors cors.xml s3://your-bucket-name
+```
+
+### "Access Denied" errors
+
+- Verify your access key and secret are correct in `aws.json`
+- Check the bucket name matches exactly (case-sensitive)
+- Ensure the region and endpoint match your bucket's location
+- Verify your S3 credentials have read/write permissions
+
+### Foundry doesn't show S3 option
+
+- Verify `aws.json` exists and has correct permissions
+- Check that `options.json` includes `"awsConfig": "aws.json"`
+- Check Foundry logs for configuration errors:
+
+```bash
+sudo -u foundry pm2 logs foundry
+```
+
+### "Invalid endpoint" errors
+
+Make sure the endpoint format is correct:
+- Include `https://`
+- Use `.your-objectstorage.com` (not `.hetzner.com`)
+- Match the region exactly (fsn1, nbg1, or hel1)
+
+<Callout type="success">
+  Your Foundry VTT server is now using Hetzner Object Storage for assets!
+</Callout>
+
+## Migrating Existing Assets
+
+If you have existing assets on your server, you can sync them to the bucket:
+
+```bash
+s3cmd sync /home/foundry/foundrydata/Data/ s3://your-bucket-name/
+```
+
+Then update your world's asset paths to use the S3 storage. This is easiest done through Foundry's file browser by re-linking assets.
