@@ -12,7 +12,8 @@ const tools = [
   {
     name: 'D&D Beyond Owned Sources Filter',
     description: 'Chrome extension that automatically filters D&D Beyond content pages to show only sources you own. Supports Monsters, Spells, Equipment, Magic Items, Feats, and Backgrounds.',
-    href: 'https://github.com/itsmecipher-dev/dndbeyond-filter-memory',
+    href: 'https://chromewebstore.google.com/detail/artificeryio-dd-beyond-ow/kgkijkpgaailadjcdmacnkfbdfgfnoaj',
+    buttonLabel: 'Install Extension',
     github: 'https://github.com/itsmecipher-dev/dndbeyond-filter-memory',
     logo: '/dndbeyond-filter-logo.png',
     features: ['Auto-detect owned sources', 'Filter all content pages', 'Easy popup management', 'Global toggle'],
@@ -56,7 +57,7 @@ export function Home() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
                 >
-                  Open Tool
+                  {tool.buttonLabel || 'Open Tool'}
                   <ExternalLink className="w-4 h-4" />
                 </a>
                 <a
