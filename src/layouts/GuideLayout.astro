@@ -1,0 +1,150 @@
+---
+import MainLayout from './MainLayout.astro'
+
+interface Props {
+  title: string
+  description: string
+  category: string
+  date: string
+  slug: string
+}
+
+const { title, description, category, date, slug } = Astro.props
+
+const categoryLabels: Record<string, string> = {
+  foundry: 'Foundry VTT',
+  infrastructure: 'Infrastructure',
+}
+
+const formattedDate = new Date(date).toLocaleDateString('en-US', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+})
+
+const ogImage = `/og/guides/${category}/${slug}.png`
+const canonicalURL = `https://www.artificery.io/guides/${category}/${slug}/`
+
+const articleSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: title,
+  description: description,
+  image: `https://www.artificery.io${ogImage}`,
+  datePublished: new Date(date).toISOString(),
+  dateModified: new Date(date).toISOString(),
+  author: {
+    '@type': 'Organization',
+    name: 'Artificery',
+    url: 'https://www.artificery.io'
+  },
+  publisher: {
+    '@type': 'Organization',
+    name: 'Artificery',
+    logo: {
+      '@type': 'ImageObject',
+      url: 'https://www.artificery.io/logo.svg'
+    }
+  },
+  mainEntityOfPage: {
+    '@type': 'WebPage',
+    '@id': canonicalURL
+  }
+}
+---
+
+<MainLayout
+  title={`${title} | Artificery`}
+  description={description}
+  ogImage={ogImage}
+  ogType="article"
+  jsonLd={articleSchema}
+>
+  <div class="space-y-6">
+    <a
+      href="/guides"
+      class="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+      </svg>
+      Back to Guides
+    </a>
+
+    <header class="space-y-4">
+      <div class="flex flex-wrap items-center gap-3 text-sm">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-700/50 text-slate-300 rounded-full">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+          </svg>
+          {categoryLabels[category] || category}
+        </span>
+        <span class="inline-flex items-center gap-1.5 text-slate-500">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+          {formattedDate}
+        </span>
+      </div>
+      <h1 class="text-3xl md:text-4xl font-bold text-white">{title}</h1>
+      {description && <p class="text-xl text-slate-400">{description}</p>}
+    </header>
+
+    <div class="bg-slate-800/50 backdrop-blur rounded-2xl border border-slate-700 p-6 md:p-8 prose-custom">
+      <slot />
+    </div>
+  </div>
+</MainLayout>
+
+<style is:global>
+  @reference "tailwindcss";
+
+  .prose-custom h1 {
+    @apply text-3xl font-bold text-white mt-8 mb-4;
+  }
+  .prose-custom h1:first-child {
+    @apply mt-0;
+  }
+  .prose-custom h2 {
+    @apply text-2xl font-semibold text-white mt-8 mb-3;
+  }
+  .prose-custom h3 {
+    @apply text-xl font-semibold text-white mt-6 mb-2;
+  }
+  .prose-custom p {
+    @apply text-slate-300 leading-relaxed mb-4;
+  }
+  .prose-custom ul {
+    @apply list-disc list-inside text-slate-300 mb-4 space-y-1;
+  }
+  .prose-custom ol {
+    @apply list-decimal list-inside text-slate-300 mb-4 space-y-1;
+  }
+  .prose-custom li {
+    @apply text-slate-300;
+  }
+  .prose-custom a {
+    @apply text-blue-400 hover:text-blue-300 underline;
+  }
+  .prose-custom code:not(pre code) {
+    @apply bg-slate-700 text-slate-200 px-1.5 py-0.5 rounded text-sm;
+  }
+  .prose-custom pre {
+    @apply bg-slate-900 border border-slate-700 rounded-lg p-4 overflow-x-auto mb-4;
+  }
+  .prose-custom blockquote {
+    @apply border-l-4 border-slate-600 pl-4 italic text-slate-400 my-4;
+  }
+  .prose-custom hr {
+    @apply border-slate-700 my-8;
+  }
+  .prose-custom table {
+    @apply w-full text-slate-300 mb-4;
+  }
+  .prose-custom th {
+    @apply text-left p-2 border-b border-slate-700 font-semibold text-white;
+  }
+  .prose-custom td {
+    @apply p-2 border-b border-slate-700/50;
+  }
+</style>

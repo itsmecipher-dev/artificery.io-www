@@ -1,0 +1,96 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro'
+import { getCollection } from 'astro:content'
+
+const guides = await getCollection('guides')
+
+const categoryLabels: Record<string, string> = {
+  foundry: 'Foundry VTT',
+  infrastructure: 'Infrastructure',
+}
+
+const categoryDescriptions: Record<string, string> = {
+  foundry: 'Guides for setting up and managing Foundry VTT',
+  infrastructure: 'Server, DNS, and cloud infrastructure tutorials',
+}
+
+// Group guides by category
+const grouped = guides.reduce((acc, guide) => {
+  const category = guide.data.category
+  if (!acc[category]) acc[category] = []
+  acc[category].push(guide)
+  return acc
+}, {} as Record<string, typeof guides>)
+
+// Sort each category by date
+Object.values(grouped).forEach(list => {
+  list.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime())
+})
+---
+
+<MainLayout
+  title="Guides & Tutorials | Artificery"
+  description="Step-by-step tutorials and documentation for TTRPG tools and infrastructure."
+>
+  <div class="space-y-12">
+    <section class="text-center py-8">
+      <h1 class="text-4xl font-bold text-white mb-4">Guides & Tutorials</h1>
+      <p class="text-xl text-slate-400 max-w-2xl mx-auto">
+        Step-by-step tutorials and documentation for TTRPG tools and infrastructure.
+      </p>
+    </section>
+
+    {guides.length === 0 ? (
+      <div class="bg-slate-800/30 rounded-2xl border border-slate-700/50 p-8 text-center">
+        <p class="text-slate-400">No guides available yet. Check back soon!</p>
+      </div>
+    ) : (
+      Object.entries(grouped).map(([category, categoryGuides]) => (
+        <section class="space-y-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">
+              {categoryLabels[category] || category}
+            </h2>
+            {categoryDescriptions[category] && (
+              <p class="text-slate-400 mt-1">{categoryDescriptions[category]}</p>
+            )}
+          </div>
+
+          <div class="grid gap-4">
+            {categoryGuides.map((guide) => {
+              const slugParts = guide.slug.split('/')
+              const actualSlug = slugParts[slugParts.length - 1]
+              return (
+              <a
+                href={`/guides/${guide.data.category}/${actualSlug}`}
+                class="group bg-slate-800/50 hover:bg-slate-800 backdrop-blur rounded-xl border border-slate-700 p-5 transition-colors"
+              >
+                <div class="flex items-start justify-between gap-4">
+                  <div class="space-y-2">
+                    <h3 class="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">
+                      {guide.data.title}
+                    </h3>
+                    <p class="text-slate-400 text-sm">{guide.data.description}</p>
+                    <div class="flex items-center gap-1.5 text-slate-500 text-sm">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                      </svg>
+                      {new Date(guide.data.date).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </div>
+                  </div>
+                  <svg class="w-5 h-5 text-slate-600 group-hover:text-blue-400 transition-colors shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                  </svg>
+                </div>
+              </a>
+            )})}
+          </div>
+        </section>
+      ))
+    )}
+  </div>
+</MainLayout>
