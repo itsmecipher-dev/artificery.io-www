@@ -1,0 +1,32 @@
+---
+import { getCollection } from 'astro:content'
+import GuideLayout from '../../layouts/GuideLayout.astro'
+import Callout from '../../components/mdx/Callout.astro'
+
+export async function getStaticPaths() {
+  const guides = await getCollection('guides')
+  return guides.map((guide) => {
+    // guide.slug is like "foundry/manual-server-setup" for nested content
+    const slugParts = guide.slug.split('/')
+    const actualSlug = slugParts[slugParts.length - 1]
+
+    return {
+      params: { slug: `${guide.data.category}/${actualSlug}` },
+      props: { guide, actualSlug },
+    }
+  })
+}
+
+const { guide, actualSlug } = Astro.props
+const { Content } = await guide.render()
+---
+
+<GuideLayout
+  title={guide.data.title}
+  description={guide.data.description}
+  category={guide.data.category}
+  date={guide.data.date}
+  slug={actualSlug}
+>
+  <Content components={{ Callout }} />
+</GuideLayout>
